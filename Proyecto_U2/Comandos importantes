@@ -1,0 +1,15 @@
+1. Generar el analizador léxico con JFlex:
+    java -jar jflex-full-1.9.1.jar factorial.flex
+
+2. Generar el analizador sintáctico con CUP (asegúrate de que factorial.cup y ExprResult.java ya estén guardados en la carpeta):
+    java -cp java-cup-11b-runtime.jar java_cup.Main -parser Parser -symbols sym factorial.cup
+
+3. Compilar todos los archivos Java de la carpeta (esto compilará ExprResult.java, Parser.java, Lexer.java y TAC.java juntos):
+    javac -cp ".;java-cup-11b-runtime.jar" *.java
+
+4. Ejecutar el programa (puedes probar el menú interactivo sin argumentos, o el archivo factorial):
+  Menú interactivo:
+    java -cp ".;java-cup-11b-runtime.jar" TAC
+
+  Modo archivo original:
+    java -cp ".;java-cup-11b-runtime.jar" TAC factorial.code
