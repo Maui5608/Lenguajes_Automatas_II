@@ -1,0 +1,300 @@
+import java_cup.runtime.*;
+import java.util.*;
+
+parser code {:
+
+    public static ArrayList<String> salida = new ArrayList<String>();
+    public static ArrayList<String> polacaSalida = new ArrayList<String>();
+    public static ArrayList<String[]> cuadrupletasSalida = new ArrayList<String[]>();
+    
+    private static int contT = 0;
+    private static int contL = 0;
+    private static HashMap<Integer, Integer> alias = new HashMap<Integer, Integer>();
+    private static ArrayDeque<int[]> cadenas = new ArrayDeque<int[]>();
+
+    public static void limpiarTodo() {
+        salida.clear();
+        polacaSalida.clear();
+        cuadrupletasSalida.clear();
+        contT = 0;
+        contL = 0;
+        alias.clear();
+        cadenas.clear();
+    }
+
+    public static String nuevoTemporal() {
+        contT++;
+        return "T" + contT;
+    }
+
+    public static int nuevaEtiqueta() {
+        contL++;
+        return contL;
+    }
+
+    public static void emitir(String linea) {
+        salida.add(linea);
+    }
+
+    private static String et(int id) {
+        return "@" + id + "@";
+    }
+
+    public static String binaria(String a, String op, String b, ArrayList<String> polacaIzq, ArrayList<String> polacaDer) {
+        // Generar Polaca Inversa local para la expresion
+        ArrayList<String> p = new ArrayList<String>();
+        p.addAll(polacaIzq);
+        p.addAll(polacaDer);
+        p.add(op);
+        polacaSalida.addAll(p);
+
+        String t = nuevoTemporal();
+        emitir(t + " = " + a + " " + op + " " + b);
+        cuadrupletasSalida.add(new String[]{op, a, b, t});
+        return t;
+    }
+
+    public static String unaria(String a, ArrayList<String> polacaArg) {
+        ArrayList<String> p = new ArrayList<String>();
+        p.addAll(polacaArg);
+        p.add("u-");
+        polacaSalida.addAll(p);
+
+        String t = nuevoTemporal();
+        emitir(t + " = -" + a);
+        cuadrupletasSalida.add(new String[]{"-", a, "", t});
+        return t;
+    }
+
+    public static String llamada(String nombre, ArrayList args, ArrayList<String> polacaArgs) {
+        for (Object o : args) {
+            emitir("param " + o);
+        }
+        String t = nuevoTemporal();
+        emitir(t + " = call " + nombre + ", " + args.size());
+        return t;
+    }
+
+    public static void asignar(String destino, String valor, ArrayList<String> polacaVal) {
+        polacaSalida.addAll(polacaVal);
+        polacaSalida.add("=");
+        
+        if (!salida.isEmpty() && valor.matches("T\\d+")) {
+            String ult = salida.get(salida.size() - 1);
+            if (ult.startsWith(valor + " = call ")) {
+                salida.set(salida.size() - 1, destino + " = " + ult.substring(ult.indexOf(" = ") + 3));
+                cuadrupletasSalida.add(new String[]{"=", valor, "", destino});
+                return;
+            }
+        }
+        emitir(destino + " = " + valor);
+        cuadrupletasSalida.add(new String[]{"=", valor, "", destino});
+    }
+
+    public static void condicion(String c) {
+        int[] k = cadenas.peek();
+        int sig = nuevaEtiqueta();
+        emitir("if false " + c + " goto " + et(sig));
+        k[0] = sig;
+        k[2] = 1;
+    }
+
+    public static void abrirCadena() {
+        cadenas.push(new int[] {0, 0, 0});
+    }
+
+    public static void siguienteRama() {
+        int[] k = cadenas.peek();
+        if (k[1] == 0) {
+            k[1] = nuevaEtiqueta();
+        }
+        emitir("goto " + et(k[1]));
+        emitir("label " + et(k[0]));
+        k[2] = 0;
+    }
+
+    public static void cerrarCadena() {
+        int[] k = cadenas.pop();
+        if (k[1] == 0) {
+            emitir("label " + et(k[0]));
+        } else {
+            if (k[2] == 1) {
+                alias.put(k[0], k[1]);
+            }
+            emitir("label " + et(k[1]));
+        }
+    }
+
+    public static ArrayList<String> resultadoFinal() {
+        ArrayList<String> res = new ArrayList<String>();
+        HashMap<Integer, String> nombres = new HashMap<Integer, String>();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("@(\\d+)@");
+        int n = 0;
+        for (String linea : salida) {
+            java.util.regex.Matcher m = p.matcher(linea);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                int id = Integer.parseInt(m.group(1));
+                while (alias.containsKey(id)) {
+                    id = alias.get(id);
+                }
+                String nombre = nombres.get(id);
+                if (nombre == null) {
+                    n++;
+                    nombre = "L" + n;
+                    nombres.put(id, nombre);
+                }
+                m.appendReplacement(sb, nombre);
+            }
+            m.appendTail(sb);
+            res.add(sb.toString());
+        }
+        return res;
+    }
+
+    public void report_error(String message, Object info) {
+        // Silenciar errores detallados en modo interactivo de expresiones simples
+    }
+:};
+
+terminal DEF, IF, ELIF, ELSE, RETURN, PRINT, OR;
+terminal MAS, MENOS, POR, DIV, POT;
+terminal EQ, NE, LT, GT, LE, GE, ASIGNA;
+terminal LPAREN, RPAREN, COMA, DOSP;
+terminal NEWLINE, INDENT, DEDENT, UMINUS;
+terminal String ID, NUM;
+
+non terminal programa, lista_sent, sentencia;
+non terminal def_ini, def_stmt, params, lista_params;
+non terminal if_ini, if_stmt, elif_marca, elif_ini, else_ini, cola_if;
+non terminal return_stmt, print_stmt, asign_stmt, bloque;
+non terminal ExprResult expr;
+non terminal ArrayList args, lista_args;
+
+precedence left OR;
+precedence left EQ, NE, LT, GT, LE, GE;
+precedence left MAS, MENOS;
+precedence left POR, DIV;
+precedence right UMINUS;
+precedence right POT;
+
+start with programa;
+
+programa ::= lista_sent;
+
+lista_sent ::= sentencia
+             | lista_sent sentencia;
+
+sentencia ::= asign_stmt NEWLINE
+            | return_stmt NEWLINE
+            | print_stmt NEWLINE
+            | def_stmt
+            | if_stmt;
+
+bloque ::= NEWLINE INDENT lista_sent DEDENT;
+
+def_ini ::= DEF ID:n LPAREN params RPAREN DOSP
+            {: Parser.emitir("label " + n); :};
+
+def_stmt ::= def_ini bloque;
+
+params ::= /* vacio */
+         | lista_params;
+
+lista_params ::= ID
+               | lista_params COMA ID;
+
+if_ini ::= IF expr:c DOSP
+           {: Parser.abrirCadena(); Parser.condicion(c.val); :};
+
+elif_marca ::= ELIF
+               {: Parser.siguienteRama(); :};
+
+elif_ini ::= elif_marca expr:c DOSP
+             {: Parser.condicion(c.val); :};
+
+else_ini ::= ELSE DOSP
+             {: Parser.siguienteRama(); :};
+
+cola_if ::= /* vacio */
+          | elif_ini bloque cola_if
+          | else_ini bloque;
+
+if_stmt ::= if_ini bloque cola_if
+            {: Parser.cerrarCadena(); :};
+
+asign_stmt ::= ID:d ASIGNA expr:v
+               {: Parser.asignar(d, v.val, v.polaca); :};
+
+return_stmt ::= RETURN expr:e
+                {: Parser.emitir("return " + e.val); :}
+              | RETURN
+                {: Parser.emitir("return"); :};
+
+print_stmt ::= PRINT LPAREN expr:e RPAREN
+               {: Parser.emitir("print " + e.val); :};
+
+args ::= /* vacio */
+         {: RESULT = new ArrayList(); :}
+       | lista_args:l
+         {: RESULT = l; :};
+
+lista_args ::= expr:e
+               {: RESULT = new ArrayList(); RESULT.add(e.val); :}
+             | lista_args:l COMA expr:e
+               {: l.add(e.val); RESULT = l; :};
+
+expr ::= expr:a OR expr:b   
+         {: String t = Parser.binaria(a.val, "or", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a EQ expr:b   
+         {: String t = Parser.binaria(a.val, "==", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a NE expr:b   
+         {: String t = Parser.binaria(a.val, "!=", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a LT expr:b   
+         {: String t = Parser.binaria(a.val, "<", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a GT expr:b   
+         {: String t = Parser.binaria(a.val, ">", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a LE expr:b   
+         {: String t = Parser.binaria(a.val, "<=", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a GE expr:b   
+         {: String t = Parser.binaria(a.val, ">=", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a MAS expr:b  
+         {: String t = Parser.binaria(a.val, "+", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a MENOS expr:b 
+         {: String t = Parser.binaria(a.val, "-", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a POR expr:b  
+         {: String t = Parser.binaria(a.val, "*", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a DIV expr:b  
+         {: String t = Parser.binaria(a.val, "/", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | expr:a POT expr:b  
+         {: String t = Parser.binaria(a.val, "^", b.val, a.polaca, b.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :}
+       | MENOS expr:a       
+         {: String t = Parser.unaria(a.val, a.polaca);
+            RESULT = new ExprResult(t, Parser.polacaSalida); :} %prec UMINUS
+       | LPAREN expr:a RPAREN 
+         {: RESULT = a; :}
+       | ID:i LPAREN args:l RPAREN 
+         {: String t = Parser.llamada(i, l, null);
+            ArrayList<String> p = new ArrayList<String>();
+            p.add(i);
+            RESULT = new ExprResult(t, p); :}
+       | ID:i               
+         {: ArrayList<String> p = new ArrayList<String>();
+            p.add(i);
+            RESULT = new ExprResult(i, p); :}
+       | NUM:n              
+         {: ArrayList<String> p = new ArrayList<String>();
+            p.add(n);
+            RESULT = new ExprResult(n, p); :};
